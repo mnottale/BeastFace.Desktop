@@ -213,6 +213,7 @@ class GNRModel(_ModelBase):
         self.net.eval()
         self.net.to(device)
         self.style = torch.randn(1, self.latent_dim, device=device)
+        print(f'[GNR] loaded {path} on {next(self.net.parameters()).device}')
 
     def roll(self):
         self.style = torch.randn(1, self.latent_dim, device=self.device)
@@ -263,6 +264,7 @@ class CUTModel(_ModelBase):
         self.net.load_state_dict(sd, strict=False)
         self.net.eval()
         self.net.to(device)
+        print(f'[CUT] loaded {path} on {next(self.net.parameters()).device}')
 
     def __call__(self, img_bgr):
         x = self._bgr_to_tensor(img_bgr, self.size).to(self.device)

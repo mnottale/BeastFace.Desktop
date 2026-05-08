@@ -232,8 +232,12 @@ class BeastFaceApp:
             self.models.append(lm)
         params = getattr(lm.model, 'params', {}) or {}
         param_str = ', '.join(f'{k}={v}' for k, v in params.items())
+        try:
+            actual = str(next(lm.model.net.parameters()).device)
+        except Exception:
+            actual = lm.model.device
         self.status_label.config(
-            text=f'Loaded {os.path.basename(path)} [{lm.model.type}] {param_str}'
+            text=f'Loaded {os.path.basename(path)} [{lm.model.type} on {actual}] {param_str}'
         )
         self._rebuild_cards()
 

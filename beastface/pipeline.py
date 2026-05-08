@@ -71,7 +71,9 @@ class RenderPipeline:
         paths.setup()
         from leanftm import face_to_model  # noqa: WPS433 (deferred)
         last_face_img = None
+        next_deadline = time.monotonic()
         while not self._stop.is_set():
+            loop_start = time.monotonic()
             src = self.app.source
             if src is None:
                 time.sleep(0.05)
@@ -140,10 +142,16 @@ class RenderPipeline:
                     except Exception:
                         traceback.print_exc()
 
-            # Pace the loop to roughly match source fps for video files; for
-            # live or image sources there's no point sleeping much.
+            # Pace the loop to roughly match source fps for video files,
+            # accounting for the time we already spent rendering this frame.
             if not src.is_live and not src.is_image and src.fps > 0:
-                time.sleep(max(0.0, 1.0 / src.fps))
+                period = 1.0 / src.fps
+                next_deadline = max(next_deadline + period, loop_start)
+                remaining = next_deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(remaining)
+            else:
+                next_deadline = time.monotonic()
 
     @staticmethod
     def _fit(img, target_h):
