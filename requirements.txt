@@ -1,0 +1,19 @@
+# BeastFace Desktop runtime requirements.
+#
+# System packages also required (not installable via pip):
+#   - ffmpeg with libtheora                  (OGV recording)
+#   - python3-tk / Tcl/Tk                    (Tkinter GUI; bundled on Windows/macOS)
+#   - freeglut3 (or freeglut-devel) and a working OpenGL stack   (PyOpenGL)
+#   - For virtual camera output:
+#       Linux:   v4l2loopback kernel module loaded (modprobe v4l2loopback)
+#       Windows: OBS Virtual Camera (or Unity Capture) DirectShow filter
+#       macOS:   OBS Virtual Camera
+
+numpy
+opencv-python
+Pillow
+torch
+torchvision
+mediapipe
+PyOpenGL
+pyvirtualcam
