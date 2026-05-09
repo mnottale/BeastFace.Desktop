@@ -14,6 +14,6 @@ opencv-python
 Pillow
 torch
 torchvision
-mediapipe
+mediapipe==0.10.21
 PyOpenGL
 pyvirtualcam

@@ -70,17 +70,41 @@ TORCH_PACKAGES = ('torch', 'torchvision')
 
 EXCLUDE_DIR_NAMES = {
     '.git', '__pycache__', '.pytest_cache', 'recordings',
-    'dist', 'build', 'node_modules', '.idea', '.vscode',
+    'dist', 'build', 'node_modules', '.idea', '.vscode', '.cache',
 }
 EXCLUDE_FILE_SUFFIXES = ('.pyc',)
+
+CACHE_DIR = PROJECT_ROOT / '.cache' / 'build-windows'
 
 
 # ---------------------------------------------------------------------- net
 
-def download(url: str, dest: Path) -> None:
+def _cache_name(url: str) -> str:
+    from urllib.parse import unquote, urlparse
+    name = unquote(urlparse(url).path.rsplit('/', 1)[-1])
+    if not name:
+        import hashlib
+        name = hashlib.sha256(url.encode()).hexdigest()
+    return name
+
+
+def cached_download(url: str, *, force: bool = False) -> Path:
+    """Download `url` into CACHE_DIR/<filename>, return the cached Path.
+
+    Skips the GET if the file already exists and is non-empty. Atomic via
+    a .partial file so an interrupted run doesn't poison the cache.
+    """
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    dest = CACHE_DIR / _cache_name(url)
+    if dest.exists() and dest.stat().st_size > 0 and not force:
+        print(f'  cached: {dest.name} ({dest.stat().st_size / 1e6:.1f} MB)')
+        return dest
     print(f'  GET {url}')
-    with urllib.request.urlopen(url) as r, open(dest, 'wb') as f:
+    tmp = dest.with_suffix(dest.suffix + '.partial')
+    with urllib.request.urlopen(url) as r, open(tmp, 'wb') as f:
         shutil.copyfileobj(r, f)
+    tmp.replace(dest)
+    return dest
 
 
 def extract_tar_subtree(tar_path: Path, prefix: str, target_dir: Path) -> None:
@@ -138,7 +162,7 @@ def pip_install(site_packages: Path, packages: list[str], *,
     # transitive dependencies (typing-extensions, packaging, etc.).
     cmd = [
         sys.executable, '-m', 'pip', 'install',
-        '--no-cache-dir',
+        '--cache-dir', str(CACHE_DIR / 'pip'),
         '--target', str(site_packages),
         '--platform', PY_PLAT,
         '--platform', 'any',
@@ -209,6 +233,18 @@ def write_run_bat(out_root: Path) -> None:
     )
 
 
+def fix_permissions(out_root: Path) -> None:
+    """Add +x to every file and directory so Wine (and any unzipper that
+    honors POSIX modes) can execute the .exe / .dll bits. Native Windows
+    ignores Unix mode bits, so this is harmless there."""
+    out_root.chmod(out_root.stat().st_mode | 0o111)
+    for entry in out_root.rglob('*'):
+        try:
+            entry.chmod(entry.stat().st_mode | 0o111)
+        except OSError:
+            pass
+
+
 def patch_pth(py_dir: Path) -> None:
     """Make sure Lib/site-packages is on sys.path even with the embed-style
     `pythonNNN._pth` if NuGet ever ships with one."""
@@ -248,7 +284,13 @@ def main() -> None:
                     help=f'PyTorch CUDA tag (default {DEFAULT_CUDA})')
     ap.add_argument('--cpu', action='store_true', help='CPU-only torch')
     ap.add_argument('--keep', action='store_true', help="Don't zip; leave the build dir")
+    ap.add_argument('--no-cache', action='store_true',
+                    help='Force re-downloading Python/ffmpeg/freeglut and bypass pip cache')
     args = ap.parse_args()
+    if args.no_cache:
+        # Wipe the cache so pip and our cached_download both start fresh.
+        if CACHE_DIR.exists():
+            shutil.rmtree(CACHE_DIR)
 
     out_root = Path(args.out).resolve()
     if out_root.exists():
@@ -258,8 +300,7 @@ def main() -> None:
     work_dir = Path(tempfile.mkdtemp(prefix='bf-build-'))
     try:
         print('[1/7] Downloading Windows Python (python-build-standalone)')
-        py_tar = work_dir / 'python.tar.gz'
-        download(PYTHON_URL, py_tar)
+        py_tar = cached_download(PYTHON_URL, force=args.no_cache)
 
         py_dir = out_root / 'python'
         py_dir.mkdir()
@@ -302,13 +343,11 @@ def main() -> None:
             pip_install(site_packages, other_specs)
 
         print('[4/7] Fetching ffmpeg.exe')
-        ffmpeg_zip = work_dir / 'ffmpeg.zip'
-        download(FFMPEG_URL, ffmpeg_zip)
+        ffmpeg_zip = cached_download(FFMPEG_URL, force=args.no_cache)
         (out_root / 'ffmpeg.exe').write_bytes(extract_zip_one(ffmpeg_zip, '/bin/ffmpeg.exe'))
 
         print('[5/7] Fetching freeglut.dll')
-        freeglut_archive = work_dir / 'freeglut.tar.bz2'
-        download(FREEGLUT_URL, freeglut_archive)
+        freeglut_archive = cached_download(FREEGLUT_URL, force=args.no_cache)
         (py_dir / 'freeglut.dll').write_bytes(
             extract_tar_one(freeglut_archive, 'Library/bin/freeglut.dll')
         )
@@ -316,6 +355,7 @@ def main() -> None:
         print('[6/7] Copying project source')
         copy_project(out_root)
         write_run_bat(out_root)
+        fix_permissions(out_root)
 
         if args.keep:
             print(f'[7/7] Done. Build at: {out_root}')
