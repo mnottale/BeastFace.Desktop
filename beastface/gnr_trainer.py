@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import paths
+from . import dataset_setup, paths
 from .jobs import Job
 
 GNR_DIR = Path(paths.LIB) / 'GNR'
@@ -78,26 +78,29 @@ def _coerce(name: str, value, default):
 
 def prepare_run(
     *,
-    dataset_path: str | Path,
+    domain_b: str | Path | None = None,
     experiment_dir: Path | None = None,
     params: dict,
     resume: bool = False,
 ) -> tuple[Job, Path]:
     """Lay out the experiment dir, persist params, and build the Job."""
-    dataset_path = Path(dataset_path).expanduser().resolve()
-    if not (dataset_path / 'trainA').is_dir() or not (dataset_path / 'trainB').is_dir():
-        raise FileNotFoundError(
-            f'Dataset directory must contain trainA/ and trainB/: {dataset_path}'
-        )
-
     if experiment_dir is None:
         ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         experiment_dir = _runs_root() / f'gnr-{ts}'
     experiment_dir = Path(experiment_dir).resolve()
 
+    dataset_dir = experiment_dir / 'dataset'
     if resume:
         if not experiment_dir.is_dir():
             raise FileNotFoundError(f'Resume dir does not exist: {experiment_dir}')
+        if not dataset_dir.is_dir():
+            raise FileNotFoundError(
+                f'Resume dir has no dataset/ subfolder: {dataset_dir}'
+            )
+    else:
+        if not domain_b:
+            raise ValueError('Domain B image folder is required for a fresh run.')
+        dataset_setup.assemble(domain_b, dataset_dir)
 
     # Coerce params with the canonical defaults so the dict is always typed.
     coerced = {
@@ -105,13 +108,16 @@ def prepare_run(
         for name, _, _, default in HPARAMS
     }
 
-    save_params(experiment_dir, {'dataset_path': str(dataset_path), **coerced})
+    save_params(experiment_dir, {
+        'domain_b_path': str(domain_b) if domain_b else None,
+        **coerced,
+    })
 
     parent = experiment_dir.parent
     name = experiment_dir.name
 
     cmd = [sys.executable, str(GNR_DIR / 'train.py'),
-           '--name', name, '--d_path', str(dataset_path)]
+           '--name', name, '--d_path', str(dataset_dir)]
     for field, flag, _typ, default in HPARAMS:
         cmd += [flag, str(coerced[field])]
 

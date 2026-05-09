@@ -301,10 +301,10 @@ class _ResumableStep(_Step):
     combo_choices: dict = {}
 
     def _build_form(self, parent):
-        self.dataset_path = tk.StringVar()
+        self.domain_b_path = tk.StringVar()
         self.resume_dir = tk.StringVar()
 
-        self._dir_entry(parent, 'Dataset (trainA/B):', self.dataset_path)
+        self._dir_entry(parent, 'Domain B image folder:', self.domain_b_path)
 
         # Resume row with explicit Load button so picking a dir doesn't surprise
         # the user by overwriting form values until they ask for it.
@@ -387,8 +387,9 @@ class _ResumableStep(_Step):
                 'params must match the saved checkpoint.',
             )
             return
-        if 'dataset_path' in params and not self.dataset_path.get().strip():
-            self.dataset_path.set(params['dataset_path'])
+        if 'domain_b_path' in params and params['domain_b_path'] \
+                and not self.domain_b_path.get().strip():
+            self.domain_b_path.set(params['domain_b_path'])
         for name, _flag, _kind, _default in self.trainer_module.HPARAMS:
             if name in params and name in self.hparam_vars:
                 try:
@@ -408,9 +409,6 @@ class _ResumableStep(_Step):
         return out
 
     def _launch_job(self):
-        if not self.dataset_path.get().strip():
-            raise ValueError('Pick a dataset directory (must contain trainA/ and trainB/).')
-
         resume_dir = self.resume_dir.get().strip()
         if resume_dir:
             experiment_dir = Path(resume_dir)
@@ -418,9 +416,11 @@ class _ResumableStep(_Step):
         else:
             experiment_dir = None
             resume = False
+            if not self.domain_b_path.get().strip():
+                raise ValueError('Pick a Domain B image folder.')
 
         job, exp = self.trainer_module.prepare_run(
-            dataset_path=self.dataset_path.get().strip(),
+            domain_b=self.domain_b_path.get().strip() or None,
             experiment_dir=experiment_dir,
             params=self._gather_params(),
             resume=resume,

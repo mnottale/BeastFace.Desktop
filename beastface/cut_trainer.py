@@ -13,7 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import paths
+from . import dataset_setup, paths
 from .jobs import Job
 
 CUT_DIR = Path(paths.LIB) / 'CUT'
@@ -119,36 +119,43 @@ def _detect_epoch_count(experiment_dir: Path) -> int:
 
 def prepare_run(
     *,
-    dataset_path: str | Path,
+    domain_b: str | Path | None = None,
     experiment_dir: Path | None = None,
     params: dict,
     resume: bool = False,
 ) -> tuple[Job, Path]:
-    dataset_path = Path(dataset_path).expanduser().resolve()
-    if not (dataset_path / 'trainA').is_dir() or not (dataset_path / 'trainB').is_dir():
-        raise FileNotFoundError(
-            f'Dataset directory must contain trainA/ and trainB/: {dataset_path}'
-        )
-
     if experiment_dir is None:
         ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         experiment_dir = _runs_root() / f'cut-{ts}'
     experiment_dir = Path(experiment_dir).resolve()
 
-    if resume and not experiment_dir.is_dir():
-        raise FileNotFoundError(f'Resume dir does not exist: {experiment_dir}')
+    dataset_dir = experiment_dir / 'dataset'
+    if resume:
+        if not experiment_dir.is_dir():
+            raise FileNotFoundError(f'Resume dir does not exist: {experiment_dir}')
+        if not dataset_dir.is_dir():
+            raise FileNotFoundError(
+                f'Resume dir has no dataset/ subfolder: {dataset_dir}'
+            )
+    else:
+        if not domain_b:
+            raise ValueError('Domain B image folder is required for a fresh run.')
+        dataset_setup.assemble(domain_b, dataset_dir)
 
     coerced = {
         name: _coerce(params.get(name, default), kind, default)
         for name, _, kind, default in HPARAMS
     }
-    save_params(experiment_dir, {'dataset_path': str(dataset_path), **coerced})
+    save_params(experiment_dir, {
+        'domain_b_path': str(domain_b) if domain_b else None,
+        **coerced,
+    })
 
     parent = experiment_dir.parent
     name = experiment_dir.name
 
     cmd = [sys.executable, str(CUT_DIR / 'train.py'),
-           '--dataroot', str(dataset_path),
+           '--dataroot', str(dataset_dir),
            '--name', name,
            '--checkpoints_dir', str(parent),
            '--model', 'cut']
