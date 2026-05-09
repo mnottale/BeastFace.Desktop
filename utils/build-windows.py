@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Assemble a self-contained Windows zip of BeastFace.Desktop.
 
-Pure-Linux build (no wine). Downloads the NuGet "python" package (a full
-Windows Python with Tcl/Tk and pip), pip-installs Windows wheels into
-its Lib/site-packages, fetches a static ffmpeg.exe and freeglut.dll,
-copies the project source, and zips the result.
+Pure-Linux build (no wine). Downloads Astral's python-build-standalone
+Windows tarball (a portable Python with Tcl/Tk, pip, and the full stdlib),
+pip-installs Windows wheels into its Lib/site-packages, fetches a static
+ffmpeg.exe and freeglut.dll, copies the project source, and zips it.
 
 Usage:
     utils/build-windows.py                  # default: cu128 CUDA build
@@ -37,11 +37,18 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-PYTHON_VERSION = '3.11.9'
 PY_VER_NODOTS = '311'
 PY_PLAT = 'win_amd64'
 
-NUGET_PYTHON_URL = f'https://www.nuget.org/api/v2/package/python/{PYTHON_VERSION}'
+# Astral's python-build-standalone publishes self-contained, portable Python
+# tarballs that include Tcl/Tk and pip. The "install_only" variant is the
+# ready-to-use one (the alternative is a build-environment tarball). The
+# tarball root is "python/", which becomes our dist/python/ directly.
+PYTHON_URL = (
+    'https://github.com/astral-sh/python-build-standalone/releases/download/'
+    '20260508/cpython-3.11.15%2B20260508-'
+    'x86_64-pc-windows-msvc-install_only.tar.gz'
+)
 
 # gyan.dev essentials build of FFmpeg includes libtheora -> .ogv encoding works.
 FFMPEG_URL = (
@@ -76,23 +83,28 @@ def download(url: str, dest: Path) -> None:
         shutil.copyfileobj(r, f)
 
 
-def extract_zip_subtree(zip_path: Path, prefix: str, target_dir: Path) -> None:
-    """Extract members of zip_path whose name starts with `prefix` into
+def extract_tar_subtree(tar_path: Path, prefix: str, target_dir: Path) -> None:
+    """Extract members of tar_path whose name starts with `prefix` into
     target_dir, with `prefix` itself stripped from the path."""
     target_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path) as zf:
-        for member in zf.infolist():
-            if not member.filename.startswith(prefix):
+    with tarfile.open(tar_path, 'r:*') as tf:
+        for member in tf.getmembers():
+            if not member.name.startswith(prefix):
                 continue
-            rel = member.filename[len(prefix):]
+            rel = member.name[len(prefix):]
             if not rel:
                 continue
             out = target_dir / rel
-            if member.is_dir():
+            if member.isdir():
                 out.mkdir(parents=True, exist_ok=True)
                 continue
+            if not member.isfile():
+                continue
             out.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(member) as src, open(out, 'wb') as dst:
+            src = tf.extractfile(member)
+            if src is None:
+                continue
+            with src, open(out, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
 
 
@@ -245,14 +257,14 @@ def main() -> None:
 
     work_dir = Path(tempfile.mkdtemp(prefix='bf-build-'))
     try:
-        print('[1/7] Downloading Windows Python (NuGet)')
-        nupkg = work_dir / 'python.nupkg'
-        download(NUGET_PYTHON_URL, nupkg)
+        print('[1/7] Downloading Windows Python (python-build-standalone)')
+        py_tar = work_dir / 'python.tar.gz'
+        download(PYTHON_URL, py_tar)
 
         py_dir = out_root / 'python'
         py_dir.mkdir()
-        # NuGet .nupkg layout: tools/<full python tree>
-        extract_zip_subtree(nupkg, 'tools/', py_dir)
+        # python-build-standalone tarball layout: python/<full tree>
+        extract_tar_subtree(py_tar, 'python/', py_dir)
         patch_pth(py_dir)
 
         site_packages = py_dir / 'Lib' / 'site-packages'
