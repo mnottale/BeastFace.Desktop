@@ -141,6 +141,9 @@ class RenderPipeline:
                             self.app.finalize_recording()
                     except Exception:
                         traceback.print_exc()
+                vcam = self.app.virtualcam
+                if vcam is not None and self.app.virtualcam_enabled.get():
+                    vcam.push(composite, fps=src.fps)
 
             # Pace the loop to roughly match source fps for video files,
             # accounting for the time we already spent rendering this frame.

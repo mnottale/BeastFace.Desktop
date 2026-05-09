@@ -13,7 +13,7 @@ import cv2
 import torch
 from PIL import Image, ImageTk
 
-from . import paths, sources, recorder
+from . import paths, sources, recorder, virtualcam
 from .models import load_model
 from .pipeline import RenderPipeline
 
@@ -52,6 +52,9 @@ class BeastFaceApp:
         self._recording_path = None
         self._displayed_seq = -1
         self._photo = None  # keep a ref so Tk doesn't GC it
+
+        self.virtualcam = virtualcam.VirtualCam()
+        self.virtualcam_enabled = tk.BooleanVar(value=False)
 
         self._build_ui()
 
@@ -106,6 +109,14 @@ class BeastFaceApp:
         ttk.Checkbutton(top, text='show source', variable=self.show_source).pack(side=tk.LEFT)
         ttk.Checkbutton(top, text='show model', variable=self.show_model).pack(side=tk.LEFT)
 
+        self.vcam_check = ttk.Checkbutton(
+            top, text='virtual cam', variable=self.virtualcam_enabled,
+            command=self._on_virtualcam_toggle,
+        )
+        self.vcam_check.pack(side=tk.LEFT, padx=(8, 0))
+        if not virtualcam.AVAILABLE:
+            self.vcam_check.state(['disabled'])
+
         self.record_btn = ttk.Button(top, text='● Record', command=self._toggle_record)
         self.record_btn.pack(side=tk.RIGHT)
 
@@ -145,6 +156,17 @@ class BeastFaceApp:
             self.webcam_box.pack(side=tk.LEFT, padx=(0, 4))
         else:
             self.webcam_box.pack_forget()
+
+    def _on_virtualcam_toggle(self):
+        if not self.virtualcam_enabled.get():
+            self.virtualcam.close()
+            return
+        if not virtualcam.AVAILABLE:
+            self.virtualcam_enabled.set(False)
+            messagebox.showerror(
+                'Virtual camera unavailable',
+                f'pyvirtualcam could not be loaded:\n\n{virtualcam.IMPORT_ERROR}',
+            )
 
     def _on_device_change(self, _event=None):
         new_dev = self.device_var.get()
@@ -377,6 +399,10 @@ class BeastFaceApp:
         try:
             if self.recorder is not None:
                 self.recorder.close()
+        except Exception:
+            pass
+        try:
+            self.virtualcam.close()
         except Exception:
             pass
         self.root.destroy()
