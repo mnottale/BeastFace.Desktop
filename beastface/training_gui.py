@@ -319,22 +319,31 @@ class _ResumableStep(_Step):
 
         ttk.Separator(parent, orient='horizontal').pack(fill=tk.X, pady=4)
 
-        # Render one row per hyperparam.
+        # Render hyperparams in two columns to keep the form short.
+        hp_frame = ttk.Frame(parent)
+        hp_frame.pack(fill=tk.X)
+        left = ttk.Frame(hp_frame)
+        right = ttk.Frame(hp_frame)
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 12))
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         self.hparam_vars: dict[str, tk.Variable] = {}
-        for name, _flag, kind, default in self.trainer_module.HPARAMS:
+        hparams = list(self.trainer_module.HPARAMS)
+        half = (len(hparams) + 1) // 2
+        for i, (name, _flag, kind, default) in enumerate(hparams):
             var = self._make_var(kind, default)
             self.hparam_vars[name] = var
+            target = left if i < half else right
             label = name.replace('_', ' ') + ':'
             if kind == 'flag':
-                self._row(parent, label).children  # ensure row exists
-                row = list(parent.children.values())[-1]
+                row = self._row(target, label)
                 ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT)
             elif name in self.combo_choices:
-                self._combo(parent, label, var, self.combo_choices[name])
+                self._combo(target, label, var, self.combo_choices[name])
             elif kind in (int, float):
-                self._spin_for(parent, label, var, kind)
+                self._spin_for(target, label, var, kind)
             else:
-                self._text_entry(parent, label, var, width=20)
+                self._text_entry(target, label, var, width=20)
 
     @staticmethod
     def _make_var(kind, default):
