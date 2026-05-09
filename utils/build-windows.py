@@ -220,17 +220,23 @@ def copy_project(out_root: Path) -> None:
             shutil.copy2(entry, dest)
 
 
+_RUN_BAT_TEMPLATE = (
+    b'@echo off\r\n'
+    b'setlocal\r\n'
+    b'set HERE=%~dp0\r\n'
+    b'set PATH=%HERE%;%HERE%python;%PATH%\r\n'
+    b'cd /d "%HERE%BeastFace.Desktop"\r\n'
+    b'"%HERE%python\\python.exe" __ENTRY__ %*\r\n'
+    b'if errorlevel 1 pause\r\n'
+)
+
+
 def write_run_bat(out_root: Path) -> None:
-    bat = out_root / 'run.bat'
-    bat.write_bytes(
-        b'@echo off\r\n'
-        b'setlocal\r\n'
-        b'set HERE=%~dp0\r\n'
-        b'set PATH=%HERE%;%HERE%python;%PATH%\r\n'
-        b'cd /d "%HERE%BeastFace.Desktop"\r\n'
-        b'"%HERE%python\\python.exe" app.py %*\r\n'
-        b'if errorlevel 1 pause\r\n'
-    )
+    for name, entry in (('run.bat', b'app.py'),
+                        ('run_train.bat', b'train_app.py')):
+        (out_root / name).write_bytes(
+            _RUN_BAT_TEMPLATE.replace(b'__ENTRY__', entry)
+        )
 
 
 def fix_permissions(out_root: Path) -> None:
