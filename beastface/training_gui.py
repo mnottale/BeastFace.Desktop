@@ -2,6 +2,8 @@
 
 Step 1: LoRA training (kohya-ss/sd-scripts train_network.py)
 Step 2: SD many-shots generation (kohya gen_img.py with the trained LoRA)
+Step 3: GNR training (libraries/GNR/train.py)
+Step 4: CUT training (libraries/CUT/train.py)
 """
 
 from __future__ import annotations
@@ -9,9 +11,10 @@ from __future__ import annotations
 import os
 import tkinter as tk
 import traceback
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import lora_trainer, paths, sd_gen
+from . import cut_trainer, gnr_trainer, lora_trainer, paths, sd_gen
 
 paths.setup()
 
@@ -285,6 +288,163 @@ class SdGenStep(_Step):
             self._append_log(f'\n✓ saved to {self._out_dir}')
 
 
+class _ResumableStep(_Step):
+    """Base for steps with a `Resume from` directory and a hyperparameter
+    form auto-built from a list of (name, flag, kind, default) tuples.
+
+    Subclasses set `trainer_module` (which must expose `HPARAMS`,
+    `default_params`, `load_params`, `prepare_run`) plus a few choice maps
+    used to render combobox-typed fields.
+    """
+
+    trainer_module = None
+    combo_choices: dict = {}
+
+    def _build_form(self, parent):
+        self.dataset_path = tk.StringVar()
+        self.resume_dir = tk.StringVar()
+
+        self._dir_entry(parent, 'Dataset (trainA/B):', self.dataset_path)
+
+        # Resume row with explicit Load button so picking a dir doesn't surprise
+        # the user by overwriting form values until they ask for it.
+        row = self._row(parent, 'Resume from (opt.):')
+        ttk.Entry(row, textvariable=self.resume_dir).pack(
+            side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(row, text='Browse…',
+                   command=lambda: self._pick_dir(self.resume_dir)).pack(
+            side=tk.LEFT, padx=(4, 0))
+        ttk.Button(row, text='Load params',
+                   command=self._load_resume_params).pack(side=tk.LEFT, padx=(4, 0))
+
+        ttk.Separator(parent, orient='horizontal').pack(fill=tk.X, pady=4)
+
+        # Render one row per hyperparam.
+        self.hparam_vars: dict[str, tk.Variable] = {}
+        for name, _flag, kind, default in self.trainer_module.HPARAMS:
+            var = self._make_var(kind, default)
+            self.hparam_vars[name] = var
+            label = name.replace('_', ' ') + ':'
+            if kind == 'flag':
+                self._row(parent, label).children  # ensure row exists
+                row = list(parent.children.values())[-1]
+                ttk.Checkbutton(row, variable=var).pack(side=tk.LEFT)
+            elif name in self.combo_choices:
+                self._combo(parent, label, var, self.combo_choices[name])
+            elif kind in (int, float):
+                self._spin_for(parent, label, var, kind)
+            else:
+                self._text_entry(parent, label, var, width=20)
+
+    @staticmethod
+    def _make_var(kind, default):
+        if kind == 'flag':
+            v = tk.BooleanVar()
+            v.set(bool(default))
+            return v
+        if kind is int:
+            v = tk.IntVar()
+            v.set(int(default))
+            return v
+        if kind is float:
+            v = tk.DoubleVar()
+            v.set(float(default))
+            return v
+        v = tk.StringVar()
+        v.set(str(default))
+        return v
+
+    def _spin_for(self, parent, label, var, kind):
+        row = self._row(parent, label)
+        if kind is int:
+            ttk.Spinbox(row, from_=0, to=10_000_000, increment=1,
+                        textvariable=var, width=12).pack(side=tk.LEFT)
+        else:
+            ttk.Spinbox(row, from_=0.0, to=1_000_000.0, increment=0.001,
+                        textvariable=var, width=12).pack(side=tk.LEFT)
+
+    def _load_resume_params(self):
+        d = self.resume_dir.get().strip()
+        if not d:
+            messagebox.showinfo('Resume', 'Pick a resume directory first.')
+            return
+        path = Path(d)
+        params = self.trainer_module.load_params(path)
+        if params is None:
+            messagebox.showwarning(
+                'Resume',
+                f'No params.json found in {path}.\n'
+                'Form left as-is; you can still resume but architectural '
+                'params must match the saved checkpoint.',
+            )
+            return
+        if 'dataset_path' in params and not self.dataset_path.get().strip():
+            self.dataset_path.set(params['dataset_path'])
+        for name, _flag, _kind, _default in self.trainer_module.HPARAMS:
+            if name in params and name in self.hparam_vars:
+                try:
+                    self.hparam_vars[name].set(params[name])
+                except Exception:
+                    pass
+        self._append_log(f'loaded params from {path}')
+
+    def _gather_params(self) -> dict:
+        out = {}
+        for name, _flag, kind, default in self.trainer_module.HPARAMS:
+            try:
+                v = self.hparam_vars[name].get()
+            except Exception:
+                v = default
+            out[name] = v
+        return out
+
+    def _launch_job(self):
+        if not self.dataset_path.get().strip():
+            raise ValueError('Pick a dataset directory (must contain trainA/ and trainB/).')
+
+        resume_dir = self.resume_dir.get().strip()
+        if resume_dir:
+            experiment_dir = Path(resume_dir)
+            resume = True
+        else:
+            experiment_dir = None
+            resume = False
+
+        job, exp = self.trainer_module.prepare_run(
+            dataset_path=self.dataset_path.get().strip(),
+            experiment_dir=experiment_dir,
+            params=self._gather_params(),
+            resume=resume,
+        )
+        self.job = job
+        self._experiment_dir = exp
+        self._append_log(f'experiment dir: {exp}')
+
+    def _on_complete(self, rc):
+        if rc == 0:
+            self._append_log(f'\n✓ checkpoints in {self._experiment_dir}')
+
+
+class GnrStep(_ResumableStep):
+    title = '3: GNR training'
+    trainer_module = gnr_trainer
+
+
+class CutStep(_ResumableStep):
+    title = '4: CUT training'
+    trainer_module = cut_trainer
+    combo_choices = {
+        'netG': cut_trainer.NETG_CHOICES,
+        'netD': cut_trainer.NETD_CHOICES,
+        'normG': cut_trainer.NORM_CHOICES,
+        'normD': cut_trainer.NORM_CHOICES,
+        'direction': cut_trainer.DIRECTION_CHOICES,
+        'preprocess': cut_trainer.PREPROCESS_CHOICES,
+        'gan_mode': cut_trainer.GAN_MODE_CHOICES,
+        'lr_policy': cut_trainer.LR_POLICY_CHOICES,
+    }
+
+
 class TrainingApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -296,14 +456,17 @@ class TrainingApp:
 
         self.lora_step = LoraStep(nb, self)
         self.sd_step = SdGenStep(nb, self)
-        for step in (self.lora_step, self.sd_step):
+        self.gnr_step = GnrStep(nb, self)
+        self.cut_step = CutStep(nb, self)
+        self._steps = (self.lora_step, self.sd_step, self.gnr_step, self.cut_step)
+        for step in self._steps:
             step.build()
             nb.add(step.frame, text=step.title)
 
         root.protocol('WM_DELETE_WINDOW', self._on_close)
 
     def _on_close(self):
-        for step in (self.lora_step, self.sd_step):
+        for step in self._steps:
             try:
                 if step.job is not None:
                     step.job.stop()
