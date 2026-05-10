@@ -17,3 +17,13 @@ torchvision
 mediapipe==0.10.21
 PyOpenGL
 pyvirtualcam
+toml
+tqdm
+accelerate
+diffusers=0.32.2
+transformes==4.44.2
+einops
+imagesize
+voluptuous
+xformers
+bitsandbytes
