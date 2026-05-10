@@ -7,7 +7,7 @@ import os
 import threading
 import tkinter as tk
 import traceback
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import cv2
 import torch
@@ -25,12 +25,13 @@ RESOLUTIONS = (256, 512, 768, 1024)
 class LoadedModel:
     """A model the user has added to the visualiser, plus its UI state."""
 
-    __slots__ = ('model', 'name', 'enabled')
+    __slots__ = ('model', 'name', 'enabled', '_style_combo')
 
     def __init__(self, model, name):
         self.model = model
         self.name = name
         self.enabled = True
+        self._style_combo = None
 
 
 class BeastFaceApp:
@@ -296,12 +297,62 @@ class BeastFaceApp:
             if lm.model.type == 'GNR':
                 ttk.Button(row, text='Roll style',
                            command=lambda target=lm: target.model.roll()).pack(side=tk.LEFT, padx=(4, 0))
+                ttk.Button(row, text='Save style as…',
+                           command=lambda target=lm: self._save_style(target)).pack(side=tk.LEFT, padx=(4, 0))
+
+                styles_row = ttk.Frame(card)
+                styles_row.pack(anchor='w', padx=4, pady=2)
+                ttk.Label(styles_row, text='Saved style:').pack(side=tk.LEFT)
+                style_var = tk.StringVar()
+                combo = ttk.Combobox(styles_row, textvariable=style_var,
+                                     state='readonly', width=18,
+                                     values=sorted(lm.model.list_styles().keys()))
+                combo.pack(side=tk.LEFT, padx=(4, 0))
+                combo.bind(
+                    '<<ComboboxSelected>>',
+                    lambda _e, target=lm, var=style_var:
+                        self._load_style(target, var.get()),
+                )
+                lm._style_combo = combo  # so _save_style can refresh values
 
     def _remove_model(self, lm):
         with self.models_lock:
             if lm in self.models:
                 self.models.remove(lm)
         self._rebuild_cards()
+
+    # ----------------------------------------------------- GNR styles
+
+    def _save_style(self, lm):
+        name = simpledialog.askstring(
+            'Save style', 'Name for this style:', parent=self.root,
+        )
+        if not name:
+            return
+        try:
+            lm.model.save_style(name)
+        except Exception as exc:
+            traceback.print_exc()
+            messagebox.showerror('Save style failed', str(exc))
+            return
+        combo = getattr(lm, '_style_combo', None)
+        if combo is not None:
+            combo['values'] = sorted(lm.model.list_styles().keys())
+            combo.set(name)
+        self.status_label.config(
+            text=f'Saved style "{name}" → {lm.model.styles_path()}'
+        )
+
+    def _load_style(self, lm, name):
+        if not name:
+            return
+        try:
+            lm.model.load_style(name)
+        except Exception as exc:
+            traceback.print_exc()
+            messagebox.showerror('Load style failed', str(exc))
+            return
+        self.status_label.config(text=f'Loaded style "{name}"')
 
     # ----------------------------------------------------------- recording
 

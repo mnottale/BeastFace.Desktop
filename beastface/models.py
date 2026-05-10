@@ -186,6 +186,11 @@ class _ModelBase:
 class GNRModel(_ModelBase):
     type = 'GNR'
 
+    @staticmethod
+    def styles_path_for(model_path):
+        from pathlib import Path
+        return Path(model_path).with_suffix('.styles.json')
+
     def __init__(self, path, device='cpu'):
         self.path = path
         self.device = device
@@ -224,6 +229,63 @@ class GNRModel(_ModelBase):
         self.net.to(device)
         self.style = self.style.to(device)
         return self
+
+    # ---- saved-style management (persisted as <model>.styles.json) ----
+
+    def styles_path(self):
+        return GNRModel.styles_path_for(self.path)
+
+    def list_styles(self):
+        import json
+        p = self.styles_path()
+        if not p.exists():
+            return {}
+        try:
+            data = json.loads(p.read_text())
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def save_style(self, name):
+        import json
+        if not name or not name.strip():
+            raise ValueError('Style name cannot be empty.')
+        name = name.strip()
+        existing = self.list_styles()
+        existing[name] = self.style.detach().cpu().reshape(-1).tolist()
+        p = self.styles_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(existing, indent=2))
+        return name
+
+    def load_style(self, name):
+        styles = self.list_styles()
+        if name not in styles:
+            raise KeyError(f'Style not found: {name}')
+        values = styles[name]
+        if len(values) != self.latent_dim:
+            raise ValueError(
+                f'Saved style has dim {len(values)}, model expects {self.latent_dim}'
+            )
+        self.style = torch.tensor(values, dtype=torch.float32,
+                                  device=self.device).view(1, self.latent_dim)
+        return self.style
+
+    def delete_style(self, name):
+        import json
+        styles = self.list_styles()
+        if name not in styles:
+            return False
+        del styles[name]
+        p = self.styles_path()
+        if styles:
+            p.write_text(json.dumps(styles, indent=2))
+        else:
+            try:
+                p.unlink()
+            except OSError:
+                p.write_text('{}')
+        return True
 
     def __call__(self, img_bgr):
         x = self._bgr_to_tensor(img_bgr, self.size).to(self.device)
