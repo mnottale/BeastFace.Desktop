@@ -27,3 +27,7 @@ imagesize
 voluptuous
 xformers
 bitsandbytes
+dominate
+kornia
+lpips
+lmdb
