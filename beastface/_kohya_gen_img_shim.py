@@ -9,7 +9,15 @@ resolve. Forwards sys.argv to gen_img's argument parser unchanged.
 
 from __future__ import annotations
 
+import os
 import sys
+
+# When invoked as a script, sys.path[0] is the shim's own directory, not
+# the kohya cwd we were spawned in. Kohya's `from library import ...` and
+# `import gen_img` therefore fail. Prepend the cwd so they resolve.
+_CWD = os.getcwd()
+if _CWD not in sys.path:
+    sys.path.insert(0, _CWD)
 
 
 def _patch_train_util():

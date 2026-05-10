@@ -76,7 +76,10 @@ def prepare_run(
 
     The Job is configured but not started; caller calls .start().
     """
-    base_model = str(Path(base_model).expanduser().resolve())
+    # All paths fed into the TOML must use forward slashes — TOML basic
+    # strings interpret `\p`, `\b`, `\t`, etc. as escape sequences, which
+    # mangles native Windows paths. Forward slashes work everywhere.
+    base_model = Path(base_model).expanduser().resolve().as_posix()
     images_src = Path(images_dir).expanduser().resolve()
     if not images_src.is_dir():
         raise FileNotFoundError(f'Images dir does not exist: {images_src}')
@@ -139,6 +142,9 @@ def prepare_run(
         'cache_latents = true\n'
         'save_every_n_epochs = 1\n'
         'logging_dir = "logs"\n'
+        # Windows + spawn-based multiprocessing makes PyTorch DataLoader
+        # workers prone to silent deadlock. Single-process loading avoids it.
+        'max_data_loader_n_workers = 0\n'
     )
 
     cmd = [
