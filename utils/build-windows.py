@@ -155,7 +155,8 @@ def extract_tar_one(tar_path: Path, suffix: str) -> bytes:
 
 def pip_install(site_packages: Path, packages: list[str], *,
                 index_url: str | None = None,
-                extra_index_url: str | None = None) -> None:
+                extra_index_url: str | None = None,
+                no_deps: bool = False) -> None:
     # Specify multiple --platform and --abi values so the tag generator
     # accepts both the binary CPython wheels (cp311-cp311-win_amd64) and
     # the universal pure-Python wheels (py3-none-any) that come in as
@@ -174,6 +175,13 @@ def pip_install(site_packages: Path, packages: list[str], *,
         '--abi', 'none',
         '--upgrade',
     ]
+    # When the requirements file is a pip-freeze (every dep already pinned),
+    # skip transitive resolution. pip evaluates environment markers like
+    # `platform_system == "Linux"` against the build host, which on Linux
+    # makes torch's `nvidia-nccl-cu13 ; Linux` deps surface and fail to find
+    # win_amd64 wheels. --no-deps sidesteps the marker evaluator entirely.
+    if no_deps:
+        cmd.append('--no-deps')
     if index_url:
         cmd += ['--index-url', index_url]
     if extra_index_url:
@@ -181,6 +189,11 @@ def pip_install(site_packages: Path, packages: list[str], *,
     cmd += list(packages)
     print('  $', ' '.join(cmd))
     subprocess.check_call(cmd)
+
+
+def is_pinned(reqs: list[str]) -> bool:
+    """True if every entry has a strict `==X.Y.Z[+local]` pin."""
+    return bool(reqs) and all('==' in r for r in reqs)
 
 
 def parse_requirements(path: Path) -> list[str]:
@@ -218,6 +231,34 @@ def copy_project(out_root: Path) -> None:
             shutil.copytree(entry, dest, ignore=_ignore)
         else:
             shutil.copy2(entry, dest)
+
+
+def apply_patches(out_root: Path) -> None:
+    """Apply every patchs-windows/*.patch (in sorted order) to the copied tree.
+
+    Patches are unified diffs with paths rooted at the project (e.g.
+    `a/libraries/sd-scripts/train_network.py`), applied with -p1.
+    """
+    patches_dir = PROJECT_ROOT / 'patchs-windows'
+    if not patches_dir.is_dir():
+        return
+    patches = sorted(p for p in patches_dir.iterdir() if p.suffix == '.patch')
+    if not patches:
+        return
+    target = out_root / 'BeastFace.Desktop'
+    for patch in patches:
+        print(f'  applying {patch.name}')
+        cmd = ['patch', '-p1', '--forward', '-N', '-r', '-',
+               '-d', str(target)]
+        with open(patch, 'rb') as fd:
+            res = subprocess.run(cmd, stdin=fd, capture_output=True)
+        if res.returncode != 0:
+            err = res.stderr.decode('utf-8', 'replace').strip()
+            out = res.stdout.decode('utf-8', 'replace').strip()
+            raise RuntimeError(
+                f'patch {patch.name} failed (rc={res.returncode}):\n'
+                f'  stdout: {out}\n  stderr: {err}'
+            )
 
 
 _RUN_BAT_TEMPLATE = (
@@ -292,6 +333,11 @@ def main() -> None:
     ap.add_argument('--keep', action='store_true', help="Don't zip; leave the build dir")
     ap.add_argument('--no-cache', action='store_true',
                     help='Force re-downloading Python/ffmpeg/freeglut and bypass pip cache')
+    ap.add_argument('--requirements', default='requirements.txt',
+                    help='Requirements file relative to project root '
+                         '(default: requirements.txt). A pip-freeze style '
+                         'file (every dep pinned with ==) automatically '
+                         'switches pip to --no-deps.')
     args = ap.parse_args()
     if args.no_cache:
         # Wipe the cache so pip and our cached_download both start fresh.
@@ -318,7 +364,13 @@ def main() -> None:
         site_packages.mkdir(parents=True, exist_ok=True)
 
         # Split requirements into torch-related vs the rest.
-        reqs = parse_requirements(PROJECT_ROOT / 'requirements.txt')
+        reqs_path = Path(args.requirements)
+        if not reqs_path.is_absolute():
+            reqs_path = PROJECT_ROOT / reqs_path
+        reqs = parse_requirements(reqs_path)
+        pinned = is_pinned(reqs)
+        print(f'      using {reqs_path.name} '
+              f'({"pinned freeze → --no-deps" if pinned else "loose → resolve deps"})')
 
         def pkg_name(spec: str) -> str:
             for sep in ('==', '>=', '<=', '~=', '>', '<'):
@@ -337,16 +389,19 @@ def main() -> None:
         # come from PyPI rather than pytorch.org's mirror, which sometimes
         # serves wheels with inconsistent metadata that pip rejects.
         # The CUDA wheel still wins via PEP 440 ordering: 2.x.y+cu128 > 2.x.y.
-        if args.cpu:
-            pip_install(site_packages, torch_specs,
-                        extra_index_url='https://download.pytorch.org/whl/cpu')
-        else:
-            pip_install(site_packages, torch_specs,
-                        extra_index_url=f'https://download.pytorch.org/whl/{args.cuda}')
+        torch_index = (
+            'https://download.pytorch.org/whl/cpu' if args.cpu
+            else f'https://download.pytorch.org/whl/{args.cuda}'
+        )
+        # Always --no-deps for torch on Windows: its Linux-only nvidia-* deps
+        # (guarded by `platform_system == "Linux"` markers) get evaluated on
+        # the build host and would force pip into a backtracking loop.
+        pip_install(site_packages, torch_specs,
+                    extra_index_url=torch_index, no_deps=True)
 
         print('[3/7] Installing remaining wheels')
         if other_specs:
-            pip_install(site_packages, other_specs)
+            pip_install(site_packages, other_specs, no_deps=pinned)
 
         print('[4/7] Fetching ffmpeg.exe')
         ffmpeg_zip = cached_download(FFMPEG_URL, force=args.no_cache)
@@ -360,6 +415,7 @@ def main() -> None:
 
         print('[6/7] Copying project source')
         copy_project(out_root)
+        apply_patches(out_root)
         write_run_bat(out_root)
         fix_permissions(out_root)
 

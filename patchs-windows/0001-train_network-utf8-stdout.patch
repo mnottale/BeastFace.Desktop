@@ -1,0 +1,25 @@
+Force kohya/sd-scripts/train_network.py to emit UTF-8 on stdout/stderr.
+
+Without this, Windows consoles default to cp1252 and crash with
+`UnicodeEncodeError: 'charmap' codec can't encode ...` on the first
+Japanese log line.
+
+--- a/libraries/sd-scripts/train_network.py
++++ b/libraries/sd-scripts/train_network.py
+@@ -5,6 +5,16 @@
+ import typing
+ from typing import Any, List, Union, Optional
+ import sys
++
++# kohya's logging emits Japanese characters which cp1252 (Windows default
++# console encoding) can't encode. Force UTF-8 on stdout/stderr so they
++# don't crash with `UnicodeEncodeError: 'charmap' codec can't encode...`.
++for _stream in (sys.stdout, sys.stderr):
++    try:
++        _stream.reconfigure(encoding='utf-8', errors='replace')
++    except (AttributeError, ValueError):
++        pass
++
+ import random
+ import time
+ import json
