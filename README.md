@@ -13,6 +13,7 @@ Main features:
 
 - input: single image, video file, webcam
 - run multiple models in parallel for comparison
+- pick random GNR style and save them as presets
 - live visualisation, save video, and fake webcam output
 
 ### Fake webcam output requirements
@@ -27,6 +28,23 @@ On linux you need v4l2loopback. Run:
 
 to enable
 
+## Installing
+
+### Pre-built packages
+
+For windows, you can use [prebuilt zip file](https://bearclaw.info/beastface-assets/beastface-windows-1.0.zip) (3.4Gb)
+
+### Running from source
+
+Clone the repository and submodules, create a venv, install requirements, run test_app.py or app.py for visualiser.
+
+### Sample models
+
+For testing one can use CUT and GNR models trained on my sona. It is mine so behave.
+
+[GNR bearclaw model](https://bearclaw.info/beastface-assets/gnr-bearclaw-ema-v1.pt)
+
+[CUT slim bearclaw model](https://bearclaw.info/beastface-assets/cut-bearclaw-v1.pth)
 
 ## Training your models
 
