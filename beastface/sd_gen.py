@@ -43,7 +43,7 @@ def _sd_scripts_dir() -> Path:
 def prepare_run(
     *,
     base_model: str,
-    lora_path: str,
+    lora_path: str | None = None,
     template_path: str,
     resolution: int = 512,
     n_images: int = 100,
@@ -53,9 +53,15 @@ def prepare_run(
     seed: int | None = None,
     extra_args: list[str] | None = None,
 ) -> tuple[Job, Path]:
-    """Build the prompts file and return (Job, output_dir)."""
+    """Build the prompts file and return (Job, output_dir).
+
+    `lora_path` is optional; when omitted the run uses the base model alone.
+    """
     base_model = str(Path(base_model).expanduser().resolve())
-    lora_path = str(Path(lora_path).expanduser().resolve())
+    lora_path = (
+        str(Path(lora_path).expanduser().resolve())
+        if lora_path else None
+    )
     template = prompt_template.load_template(template_path)
 
     rng = random.Random(seed)
@@ -89,10 +95,13 @@ def prepare_run(
         '--sampler', sampler,
         '--batch_size', '1',
         '--xformers',
-        '--network_module', 'networks.lora',
-        '--network_weights', lora_path,
-        '--network_mul', str(network_mul),
     ]
+    if lora_path:
+        cmd += [
+            '--network_module', 'networks.lora',
+            '--network_weights', lora_path,
+            '--network_mul', str(network_mul),
+        ]
     if seed is not None:
         cmd += ['--seed', str(seed)]
     if extra_args:

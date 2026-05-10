@@ -262,8 +262,6 @@ class SdGenStep(_Step):
     def _launch_job(self):
         if not self.base_model.get().strip():
             raise ValueError('Pick a base SD model.')
-        if not self.lora_path.get().strip():
-            raise ValueError('Pick a LoRA file.')
         if not self.template_path.get().strip():
             raise ValueError('Pick a prompt template JSON.')
         try:
@@ -273,7 +271,7 @@ class SdGenStep(_Step):
 
         job, out_dir = sd_gen.prepare_run(
             base_model=self.base_model.get().strip(),
-            lora_path=self.lora_path.get().strip(),
+            lora_path=self.lora_path.get().strip() or None,
             template_path=self.template_path.get().strip(),
             resolution=int(self.resolution.get()),
             n_images=int(self.n_images.get()),
