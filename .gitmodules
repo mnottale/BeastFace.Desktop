@@ -1,0 +1,9 @@
+[submodule "libraries/sd-scripts"]
+	path = libraries/sd-scripts
+	url = https://github.com/kohya-ss/sd-scripts.git
+[submodule "libraries/CUT"]
+	path = libraries/CUT
+	url = https://github.com/taesungp/contrastive-unpaired-translation
+[submodule "libraries/GNR"]
+	path = libraries/GNR
+	url = https://github.com/mnottale/GANsNRoses.git
