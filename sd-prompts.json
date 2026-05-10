@@ -1,0 +1,10 @@
+{
+    "prompt":  "cpc furry anthropomorphic wolf portrait $jaw $direction $tilt $angle",
+    "negative_prompt": "blurry, bad anatomy, low quality, deformed, ugly",
+    "color": ["brown", "white", "grey", "blue", "purple", "black"],
+    "mouth": ["mouth closed", "mouth wide opened", "mouth opened"],
+    "direction": [", front view", ", side view", ""],
+    "tilt": [", head tilted left", ", head tilted right", "", ""],
+    "angle": ["", "", ", low angle shoot", ", high angle shoot"],
+    "jaw": ["", ", jaw clenched", ", jaw sligthly open", ", jaw wide open"]
+}
