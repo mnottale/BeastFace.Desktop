@@ -2,7 +2,11 @@
 
 This app provide a visualiser and training helpers for AI models mapping a face to a sona while preserving the pose, at video speed.
 
-<video src="demo.mp4" width="1195" height="512" controls></video>
+<p align="center" width="100%">
+<video src="https://github.com/user-attachments/assets/e43a58c6-45d0-4f1f-aa44-ff507e336ca5" width="80%" controls></video>
+</p>
+
+
 
 It support two backend network architectures:
 
