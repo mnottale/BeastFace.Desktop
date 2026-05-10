@@ -20,8 +20,8 @@ pyvirtualcam
 toml
 tqdm
 accelerate
-diffusers=0.32.2
-transformes==4.44.2
+diffusers==0.32.2
+transformers==4.44.2
 einops
 imagesize
 voluptuous
