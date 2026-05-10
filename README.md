@@ -2,6 +2,8 @@
 
 This app provide a visualiser and training helpers for AI models mapping a face to a sona while preserving the pose, at video speed.
 
+<video src="demo.mp4" width="1195" height="512" controls></video>
+
 It support two backend network architectures:
 
 - GNR: GANs'n roses: heavier, but can disentangle style from pose, which means it is capable of representing different styles with the same model (for instance: varying fur color)
